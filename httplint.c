@@ -177,10 +177,10 @@ void init(void)
       "^HTTP/([0-9]+)[.]([0-9]+) ([0-9][0-9][0-9]) ([\t -~€-ÿ]*)$",
       REG_EXTENDED);
   regcomp_wrapper(&re_token,
-      "^([-0-9a-zA-Z_.]+)",
+      "^([-0-9a-zA-Z_.!]+)",
       REG_EXTENDED);
   regcomp_wrapper(&re_token_value,
-      "^([-0-9a-zA-Z_.]+)(=([-0-9a-zA-Z_.]+|\"([^\"]|[\\].)*\"))?",
+      "^([-0-9a-zA-Z_.!]+)(=([-0-9a-zA-Z_.!]+|\"([^\"]|[\\].)*\"))?",
       REG_EXTENDED);
   regcomp_wrapper(&re_content_type,
       "^([-0-9a-zA-Z_.]+)/([-0-9a-zA-Z_.]+)[ \t]*"
@@ -194,7 +194,7 @@ void init(void)
       "^(W/[ \t]*)?\"([^\"]|[\\].)*\"$",
       REG_EXTENDED);
   regcomp_wrapper(&re_server,
-      "^((([-0-9a-zA-Z_.]+(/[-0-9a-zA-Z_.]+)?)|(\\(.*\\)))[ \t]*)+$",
+      "^((([-0-9a-zA-Z_.!]+(/[-0-9a-zA-Z_.]+)?)|(\\(.*\\)))[ \t]*)+$",
       REG_EXTENDED);
   regcomp_wrapper(&re_transfer_coding,
       "^([-0-9a-zA-Z_.]+)[ \t]*"
@@ -398,8 +398,11 @@ void check_header(const char *name, const char *value)
   if (header) {
     header->count++;
     header->handler(value);
-  } else
+  } else if ((name[0] == 'X' || name[0] == 'x') && name[1] == '-') {
+    lookup("xheader");
+  } else {
     lookup("nonstandard");
+  }
 }
 
 
@@ -817,7 +820,7 @@ void header_last_modified(const char *s)
   time0 = time(0);
   if (!parse_date(s, &tm))
     return;
-  time1 = mktime(&tm);
+  time1 = mktime_from_utc(&tm);
 
   diff = difftime(time1, time0);
   if (10 < diff)
@@ -1086,7 +1089,8 @@ struct message_entry {
   { "via", "This header was added by a proxy, cache or gateway." },
   { "wrongdate", "Warning: The server date-time differs from this system's "
                  "date-time by more than 10 seconds. Check that both the "
-                 "system clocks are correct." }
+                 "system clocks are correct." },
+  { "xheader", "This is an extension header. I don't know how to check it." }
 };
 
 
