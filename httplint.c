@@ -32,6 +32,7 @@
 
 
 bool start;
+bool html = false;
 CURL *curl;
 int status_code;
 char error_buffer[CURL_ERROR_SIZE];
@@ -83,8 +84,6 @@ void header_vary(const char *s);
 void header_via(const char *s);
 void header_set_cookie(const char *s);
 void die(const char *error);
-void warning(const char *message);
-void error(const char *message);
 void print(const char *s, size_t len);
 void lookup(const char *key);
 
@@ -129,14 +128,19 @@ struct header_entry {
  */
 int main(int argc, char *argv[])
 {
-  int i;
+  int i = 1;
 
   if (argc < 2)
-    die("Usage: httplint url [url ...]");
+    die("Usage: httplint [--html] url [url ...]");
 
   init();
 
-  for (i = 1; i != argc; i++)
+  if (1 < argc && strcmp(argv[1], "--html") == 0) {
+    html = true;
+    i++;
+  }
+
+  for (; i != argc; i++)
     check_url(argv[i]);
 
   curl_global_cleanup();
@@ -263,19 +267,39 @@ void check_url(const char *url)
   for (i = 0; i != sizeof header_table / sizeof header_table[0]; i++)
     header_table[i].count = 0;
 
-  printf("Checking URL %s\n", url);
-  if (strncmp(url, "http", 4))
-    warning("this is not an http or https url");
+  if (!html)
+    printf("Checking URL %s\n", url);
+  if (strncmp(url, "http", 4)) {
+    if (html)
+      printf("<p class='warning'>");
+    printf("Warning: this is not an http or https url");
+    if (html)
+      printf("</p>");
+    printf("\n");
+  }
 
   if (curl_easy_setopt(curl, CURLOPT_URL, url))
     die("Failed to set curl options");
 
+  if (html)
+    printf("<ul>\n");
   code = curl_easy_perform(curl);
+  if (html)
+    printf("</ul>\n");
   if (code != CURLE_OK && code != CURLE_WRITE_ERROR) {
-    error(error_buffer);
+    if (html)
+      printf("<p class='error'>");
+    printf("Error: ");
+    print(error_buffer, strlen(error_buffer));
+    printf(".");
+    if (html)
+      printf("</p>");
+    printf("\n");
     return;
   } else {
     printf("\n");
+    if (html)
+      printf("<ul>");
     for (i = 0; i != sizeof header_table / sizeof header_table[0]; i++) {
       if (header_table[i].count == 0 && header_table[i].missing)
         lookup(header_table[i].missing);
@@ -285,6 +309,9 @@ void check_url(const char *url)
   r = regexec(&re_ugly, url, 0, 0, 0);
   if (r)
     lookup("ugly");
+
+  if (html)
+    printf("</ul>");
 }
 
 
@@ -298,16 +325,20 @@ size_t header_callback(char *ptr, size_t msize, size_t nmemb, void *stream)
 
   UNUSED(stream);
 
-  printf("* ");
+  printf(html ? "<li><code>" : "* ");
   print(ptr, size);
-  printf("\n");
+  printf(html ? "</code><ul>" : "\n");
 
   if (size < 2 || ptr[size - 2] != 13 || ptr[size - 1] != 10) {
     lookup("notcrlf");
+    if (html)
+      printf("</ul></li>\n");
     return size;
   }
   if (sizeof s <= size) {
-    warning("header too long: ignored\n");
+    lookup("headertoolong");
+    if (html)
+      printf("</ul></li>\n");
     return size;
   }
   strncpy(s, ptr, size);
@@ -318,7 +349,9 @@ size_t header_callback(char *ptr, size_t msize, size_t nmemb, void *stream)
 
   if (s[0] == 0) {
     /* empty header indicates end of headers */
-    puts("End of headers.");
+    lookup("endofheaders");
+    if (html)
+      printf("</ul></li>\n");
     return 0;
 
   } else if (start) {
@@ -336,6 +369,8 @@ size_t header_callback(char *ptr, size_t msize, size_t nmemb, void *stream)
     check_header(name, skip_lws(value));
   }
 
+  if (html)
+    printf("</ul></li>\n");
   return size;
 }
 
@@ -567,7 +602,11 @@ bool parse_list(const char *s, regex_t *preg, unsigned int n, unsigned int m,
   do {
     r = regexec(preg, s, 20, pmatch, 0);
     if (r) {
+      if (html)
+        printf("<li class='error'>");
       printf("    Failed to match list item %i\n", items + 1);
+      if (html)
+        printf("</li>\n");
       return false;
     }
 
@@ -580,7 +619,11 @@ bool parse_list(const char *s, regex_t *preg, unsigned int n, unsigned int m,
     if (*s == 0)
       break;
     if (*s != ',') {
+      if (html)
+        printf("<li class='error'>");
       printf("    Expecting , after list item %i\n", items);
+      if (html)
+        printf("</li>\n");
       return false;
     }
     while (*s == ',')
@@ -588,11 +631,15 @@ bool parse_list(const char *s, regex_t *preg, unsigned int n, unsigned int m,
   } while (*s != 0);
 
   if (items < n || m < items) {
+    if (html)
+      printf("<li class='error'>");
     printf("    %i items in list, but there should be ", items);
     if (m == UINT_MAX)
       printf("at least %i\n", n);
     else
       printf("between %i and %i\n", n, m);
+    if (html)
+      printf("</li>\n");
     return false;
   }
 
@@ -662,7 +709,13 @@ void header_cache_control_callback(const char *s, regmatch_t pmatch[])
       (int (*)(const void *, const void *)) strcasecmp);
 
   if (!dir) {
-    printf("    Cache-Control directive '%s':\n", name);
+    if (html)
+      printf("<li class='warning'>");
+    printf("    Cache-Control directive '");
+    print(name, strlen(name));
+    printf("':\n");
+    if (html)
+      printf("</li>\n");
     lookup("unknowncachecont");
   }
 }
@@ -707,7 +760,11 @@ void header_content_encoding_callback(const char *s, regmatch_t pmatch[])
       sizeof content_coding_list[0],
       (int (*)(const void *, const void *)) strcasecmp);
   if (!dir) {
+    if (html)
+      printf("<li class='warning'>");
     printf("    Content-Encoding '%s':\n", name);
+    if (html)
+      printf("</li>\n");
     lookup("unknowncontenc");
   }
 }
@@ -922,7 +979,11 @@ void header_transfer_encoding_callback(const char *s, regmatch_t pmatch[])
       sizeof transfer_coding_list[0],
       (int (*)(const void *, const void *)) strcasecmp);
   if (!dir) {
+    if (html)
+      printf("<li class='warning'>");
     printf("    Transfer-Encoding '%s':\n", name);
+    if (html)
+      printf("</li>\n");
     lookup("unknowntransenc");
   }
 }
@@ -986,7 +1047,7 @@ void header_set_cookie(const char *s)
     else
       s2 = s;
 
-    if (strncmp(s2, "expires=", 8) == 0) {
+    if (strncasecmp(s2, "expires=", 8) == 0) {
       s2 += 8;
       r = regexec(&re_cookie_expires, s2, 20, pmatch, 0);
       if (r == 0) {
@@ -1009,15 +1070,19 @@ void header_set_cookie(const char *s)
         lookup("cookiebaddate");
         ok = false;
       }
-    } else if (strncmp(s2, "domain=", 7) == 0) {
-    } else if (strncmp(s2, "path=", 5) == 0) {
+    } else if (strncasecmp(s2, "domain=", 7) == 0) {
+    } else if (strncasecmp(s2, "path=", 5) == 0) {
       if (s2[5] != '/') {
         lookup("cookiebadpath");
         ok = false;
       }
-    } else if (strcmp(s, "secure") == 0) {
+    } else if (strcasecmp(s, "secure") == 0) {
     } else {
+      if (html)
+        printf("<li class='warning'>");
       printf("    Set-Cookie field '%s':\n", s2);
+      if (html)
+        printf("</li>\n");
       lookup("cookieunknownfield");
       ok = false;
     }
@@ -1044,34 +1109,27 @@ void die(const char *error)
 
 
 /**
- * Print a warning message.
- */
-void warning(const char *message)
-{
-  printf("Warning: %s\n", message);
-}
-
-
-/**
- * Print an error message.
- */
-void error(const char *message)
-{
-  printf("Error: %s\n", message);
-}
-
-
-/**
  * Print a string which contains control characters.
  */
 void print(const char *s, size_t len)
 {
   size_t i;
   for (i = 0; i != len; i++) {
-    if (31 < s[i] && s[i] < 127)
+    if (html && s[i] == '<')
+      printf("&lt;");
+    else if (html && s[i] == '>')
+      printf("&gt;");
+    else if (html && s[i] == '&')
+      printf("&amp;");
+    else if (31 < s[i] && s[i] < 127)
       putchar(s[i]);
-    else
+    else {
+      if (html)
+        printf("<span class='cc'>");
       printf("[%.2x]", s[i]);
+      if (html)
+        printf("</span>");
+    }
   }
 }
 
@@ -1146,10 +1204,12 @@ struct message_entry {
                       "will be deleted by browsers." },
   { "cookieunknownfield", "Warning: This is not a standard Set-Cookie "
                           "field." },
+  { "endofheaders", "End of headers." },
   { "futurehttp", "Warning: I only understand HTTP/1.1. Check for a newer "
                   "version of this tool." },
   { "futurelastmod", "Error: The specified Last-Modified date-time is in "
                      "the future." },
+  { "headertoolong", "Warning: Header too long: ignored." },
   { "missingcolon", "Error: Headers must be of the form 'Name: value'." },
   { "missingcontenttype", "Warning: No Content-Type header was present. The "
                           "client will have to guess the media type or ask "
@@ -1213,22 +1273,49 @@ void lookup(const char *key)
   else
     s = key;
 
-  printf("    ");
-  x = 4;
-  while (*s) {
-    spc = strchr(s, ' ');
-    if (!spc)
-      spc = s + strlen(s);
-    if (75 < x + (spc - s)) {
-      printf("\n    ");
-      x = 4;
-    }
-    x += spc - s + 1;
-    printf("%.*s ", spc - s, s);
-    if (*spc)
-      s = spc + 1;
+  if (html) {
+    if (strncmp(s, "Warning:", 8) == 0)
+      printf("<li class='warning'>");
+    else if (strncmp(s, "Error:", 6) == 0)
+      printf("<li class='error'>");
+    else if (strncmp(s, "OK", 2) == 0)
+      printf("<li class='ok'>");
     else
-      s = spc;
+      printf("<li>");
+    for (; *s; s++) {
+      if (strncmp(s, "http://", 7) == 0) {
+        spc = strchr(s, ' ');
+        printf("<a href='%.*s'>%.*s</a>", spc - s, s, spc - s, s);
+        s = spc;
+      }
+      switch (*s) {
+        case '<': printf("&lt;"); break;
+        case '>': printf("&gt;"); break;
+        case '&': printf("&amp;"); break;
+        default: printf("%c", *s); break;
+      }
+    }
+    printf("</li>\n");
+
+  } else {
+    printf("    ");
+    x = 4;
+    while (*s) {
+      spc = strchr(s, ' ');
+      if (!spc)
+        spc = s + strlen(s);
+      if (75 < x + (spc - s)) {
+        printf("\n    ");
+        x = 4;
+      }
+      x += spc - s + 1;
+      printf("%.*s ", spc - s, s);
+      if (*spc)
+        s = spc + 1;
+      else
+        s = spc;
+    }
+    printf("\n\n");
   }
-  printf("\n\n");
 }
+
