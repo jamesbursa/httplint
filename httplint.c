@@ -36,7 +36,8 @@ CURL *curl;
 int status_code;
 char error_buffer[CURL_ERROR_SIZE];
 regex_t re_status_line, re_token, re_token_value, re_content_type, re_ugly,
-    re_absolute_uri, re_etag, re_server, re_transfer_coding, re_upgrade;
+    re_absolute_uri, re_etag, re_server, re_transfer_coding, re_upgrade,
+    re_rfc1123, re_rfc1036, re_asctime;
 
 
 void init(void);
@@ -47,6 +48,7 @@ size_t data_callback(void *ptr, size_t size, size_t nmemb, void *stream);
 void check_status_line(const char *s);
 void check_header(const char *name, const char *value);
 bool parse_date(const char *s, struct tm *tm);
+int month(const char *s);
 const char *skip_lws(const char *s);
 bool parse_list(const char *s, regex_t *preg, unsigned int n, unsigned int m,
     void (*callback)(const char *s, regmatch_t pmatch[]));
@@ -203,6 +205,21 @@ void init(void)
       REG_EXTENDED);
   regcomp_wrapper(&re_ugly,
       "^[a-zA-Z0-9]+://[^/]+[/a-zA-Z0-9-_]*$",
+      REG_EXTENDED);
+  regcomp_wrapper(&re_rfc1123,
+      "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0123][0-9]) "
+      "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) "
+      "([012][0-9]):([0-5][0-9]):([0-5][0-9]) GMT$",
+      REG_EXTENDED);
+  regcomp_wrapper(&re_rfc1036,
+      "^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), "
+      "([0123][0-9])-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-"
+      "([0-9][0-9]) ([012][0-9]):([0-5][0-9]):([0-5][0-9]) GMT$",
+      REG_EXTENDED);
+  regcomp_wrapper(&re_asctime,
+      "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
+      "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([ 12][0-9]) "
+      "([012][0-9]):([0-5][0-9]):([0-5][0-9]) ([0-9]{4})$",
       REG_EXTENDED);
 }
 
@@ -390,32 +407,56 @@ void check_header(const char *name, const char *value)
  */
 bool parse_date(const char *s, struct tm *tm)
 {
-  char *r;
+  int r;
   int len = strlen(s);
+  regmatch_t pmatch[20];
+
+  tm->tm_wday = 0;
+  tm->tm_yday = 0;
+  tm->tm_isdst = 0;
+  tm->tm_gmtoff = 0;
+  tm->tm_zone = "GMT";
 
   if (len == 29) {
     /* RFC 1123 */
-    r = strptime(s, "%a, %d %b %Y %H:%M:%S GMT", tm);
-    if (r == s + len)
+    r = regexec(&re_rfc1123, s, 20, pmatch, 0);
+    if (r == 0) {
+      tm->tm_mday = atoi(s + pmatch[2].rm_so);
+      tm->tm_mon = month(s + pmatch[3].rm_so);
+      tm->tm_year = atoi(s + pmatch[4].rm_so) - 1900;
+      tm->tm_hour = atoi(s + pmatch[5].rm_so);
+      tm->tm_min = atoi(s + pmatch[6].rm_so);
+      tm->tm_sec = atoi(s + pmatch[7].rm_so);
       return true;
+    }
 
   } else if (len == 24) {
     /* asctime() format */
-    r = strptime(s, "%a %b %d %H:%M:%S %Y", tm);
-    if (r == s + len) {
-      lookup("asctime");
-      return true;
-    }
-    r = strptime(s, "%a %b  %d %H:%M:%S %Y", tm);
-    if (r == s + len) {
+    r = regexec(&re_asctime, s, 20, pmatch, 0);
+    if (r == 0) {
+      if (s[pmatch[3].rm_so] == ' ')
+        tm->tm_mday = atoi(s + pmatch[3].rm_so + 1);
+      else
+        tm->tm_mday = atoi(s + pmatch[3].rm_so);
+      tm->tm_mon = month(s + pmatch[2].rm_so);
+      tm->tm_year = atoi(s + pmatch[7].rm_so) - 1900;
+      tm->tm_hour = atoi(s + pmatch[4].rm_so);
+      tm->tm_min = atoi(s + pmatch[5].rm_so);
+      tm->tm_sec = atoi(s + pmatch[6].rm_so);
       lookup("asctime");
       return true;
     }
 
   } else {
     /* RFC 1036 */
-    r = strptime(s, "%a, %d-%b-%y %H:%M:%S GMT", tm);
-    if (r == s + len) {
+    r = regexec(&re_rfc1036, s, 20, pmatch, 0);
+    if (r == 0) {
+      tm->tm_mday = atoi(s + pmatch[2].rm_so);
+      tm->tm_mon = month(s + pmatch[3].rm_so);
+      tm->tm_year = 100 + atoi(s + pmatch[4].rm_so);
+      tm->tm_hour = atoi(s + pmatch[5].rm_so);
+      tm->tm_min = atoi(s + pmatch[6].rm_so);
+      tm->tm_sec = atoi(s + pmatch[7].rm_so);
       lookup("rfc1036");
       return true;
     }
@@ -424,6 +465,38 @@ bool parse_date(const char *s, struct tm *tm)
 
   lookup("baddate");
   return false;
+}
+
+
+/**
+ * Convert a month name to the month number.
+ */
+int month(const char *s)
+{
+  switch (s[0]) {
+    case 'J':
+      switch (s[1]) {
+        case 'a':
+          return 0;
+        case 'u':
+          return s[2] == 'n' ? 5 : 6;
+      }
+    case 'F':
+      return 1;
+    case 'M':
+      return s[2] == 'r' ? 2 : 4;
+    case 'A':
+      return s[1] == 'p' ? 3 : 7;
+    case 'S':
+      return 8;
+    case 'O':
+      return 9;
+    case 'N':
+      return 10;
+    case 'D':
+      return 11;
+  }
+  return 0;
 }
 
 
