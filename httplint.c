@@ -1,8 +1,8 @@
 /*
  * HTTP Header Lint
- * Licensed under the same license as Curl
- *                http://curl.haxx.se/docs/copyright.html
- * Copyright 2003 James Bursa <bursa@users.sourceforge.net>
+ * Licensed under the MIT License
+ *                http://www.opensource.org/licenses/mit-license
+ * Copyright 2004 James Bursa <bursa@users.sourceforge.net>
  */
 
 /*
@@ -973,7 +973,7 @@ void header_set_cookie(const char *s)
     lookup("cookiebadnameval");
     ok = false;
   }
-  
+
   if (!semi)
     return;
 
