@@ -43,7 +43,8 @@ missing headers and suggests improvements.</p>
 source</a> is available. Created by
 <a href="mailto:james.bursa@strcprstskrzkrk.co.uk">James Bursa</a>.
 
-<p>Thanks to Michael Drake for the icon.</p>
+<p>Thanks to <a href="http://www.smoothartist.com/">Michael Drake</a>
+for the icon.</p>
 
 </body>
 </html>
