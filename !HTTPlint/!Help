@@ -1,0 +1,26 @@
+HTTP Header Lint
+http://www.strcprstskrzkrk.co.uk/httplint
+__________________________________________________
+
+Httplint performs various checks on HTTP/1.1
+headers returned by a server.
+
+It checks the syntax and content of almost all
+HTTP/1.1 response headers, and also warns about
+missing headers and suggests improvements.
+
+To use, double click on !HTTPlint and enter an
+address.
+
+To use from the RISC OS command line, type
+
+  httplint url [url ...]
+
+at the * prompt.
+
+Thanks to Michael Drake for the icon.
+
+Licensed under the MIT License
+   http://www.opensource.org/licenses/mit-license
+Copyright 2004 James Bursa
+   <james.bursa@strcprstskrzkrk.co.uk>

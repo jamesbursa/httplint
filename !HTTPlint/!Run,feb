@@ -1,0 +1,3 @@
+IconSprites <Obey$Dir>.!Sprites
+Set Alias$httplint "<Obey$Dir>.httplint "
+TaskWindow <Obey$Dir>.launch -wimpslot 1400K -name HTTPlint -quit
