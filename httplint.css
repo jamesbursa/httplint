@@ -1,0 +1,9 @@
+body { background-color: #eec; color: #000;
+	font-family: sans-serif; }
+h1 { border-bottom: solid thick #31b531; font-size: 2em; }
+form, pre { border: solid thin black;
+	background-color: white;
+	padding: 0.5em; display: table; }
+form p { margin: 0; padding: 0.2em; }
+input[type="text"] { width: 20em; margin-right: 0.4em; }
+pre { font-family: sans-serif; }
