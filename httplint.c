@@ -49,6 +49,7 @@ void check_status_line(const char *s);
 void check_header(const char *name, const char *value);
 bool parse_date(const char *s, struct tm *tm);
 int month(const char *s);
+time_t mktime_from_utc(struct tm *t);
 const char *skip_lws(const char *s);
 bool parse_list(const char *s, regex_t *preg, unsigned int n, unsigned int m,
     void (*callback)(const char *s, regmatch_t pmatch[]));
@@ -411,12 +412,6 @@ bool parse_date(const char *s, struct tm *tm)
   int len = strlen(s);
   regmatch_t pmatch[20];
 
-  tm->tm_wday = 0;
-  tm->tm_yday = 0;
-  tm->tm_isdst = 0;
-  tm->tm_gmtoff = 0;
-  tm->tm_zone = "GMT";
-
   if (len == 29) {
     /* RFC 1123 */
     r = regexec(&re_rfc1123, s, 20, pmatch, 0);
@@ -497,6 +492,39 @@ int month(const char *s)
       return 11;
   }
   return 0;
+}
+
+
+/**
+ * UTC version of mktime, from
+ *   http://lists.debian.org/deity/2002/deity-200204/msg00082.html
+ */
+time_t mktime_from_utc(struct tm *t)
+{
+  time_t tl, tb;
+  struct tm *tg;
+
+  tl = mktime (t);
+  if (tl == -1)
+    {
+      t->tm_hour--;
+      tl = mktime (t);
+      if (tl == -1)
+        return -1; /* can't deal with output from strptime */
+      tl += 3600;
+    }
+  tg = gmtime (&tl);
+  tg->tm_isdst = 0;
+  tb = mktime (tg);
+  if (tb == -1)
+    {
+      tg->tm_hour--;
+      tb = mktime (tg);
+      if (tb == -1)
+        return -1; /* can't deal with output from gmtime */
+      tb += 3600;
+    }
+  return (tl - (tb - tl));
 }
 
 
@@ -754,7 +782,7 @@ void header_date(const char *s)
   time0 = time(0);
   if (!parse_date(s, &tm))
     return;
-  time1 = mktime(&tm);
+  time1 = mktime_from_utc(&tm);
 
   diff = difftime(time0, time1);
   if (10 < fabs(diff))
