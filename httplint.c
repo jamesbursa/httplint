@@ -460,6 +460,10 @@ bool parse_date(const char *s, struct tm *tm)
   int len = strlen(s);
   regmatch_t pmatch[20];
 
+  tm->tm_isdst = 0;
+  tm->tm_gmtoff = 0;
+  tm->tm_zone = "GMT";
+
   if (len == 29) {
     /* RFC 1123 */
     r = regexec(&re_rfc1123, s, 20, pmatch, 0);
