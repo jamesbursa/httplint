@@ -17,11 +17,8 @@ header('Last-Modified: ' .
 if (isset($url)) {
 	$u = htmlspecialchars($url);
 	echo "<h2>Results for <a href=\"$u\">$u</a></h2>";
-	$output = shell_exec('/home/james/Projects/httplint/httplint ' .
+	passthru('/home/james/Projects/httplint/httplint --html ' .
 			escapeshellarg($url));
-	echo '<pre>';
-	echo htmlspecialchars($output);
-	echo '</pre>';
 } else {
 	$u = 'http://';
 	?>
