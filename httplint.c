@@ -205,7 +205,7 @@ void init(void)
       "^([-0-9a-zA-Z_.](/[-0-9a-zA-Z_.])?)+$",
       REG_EXTENDED);
   regcomp_wrapper(&re_ugly,
-      "^[a-zA-Z0-9]+://[^/]+[/a-zA-Z0-9-_]*$",
+      "^[a-zA-Z0-9]+://[^/]+[-/a-zA-Z0-9_]*$",
       REG_EXTENDED);
   regcomp_wrapper(&re_rfc1123,
       "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0123][0-9]) "
