@@ -37,7 +37,7 @@ int status_code;
 char error_buffer[CURL_ERROR_SIZE];
 regex_t re_status_line, re_token, re_token_value, re_content_type, re_ugly,
     re_absolute_uri, re_etag, re_server, re_transfer_coding, re_upgrade,
-    re_rfc1123, re_rfc1036, re_asctime;
+    re_rfc1123, re_rfc1036, re_asctime, re_cookie_nameval, re_cookie_expires;
 
 
 void init(void);
@@ -81,6 +81,7 @@ void header_transfer_encoding_callback(const char *s, regmatch_t pmatch[]);
 void header_upgrade(const char *s);
 void header_vary(const char *s);
 void header_via(const char *s);
+void header_set_cookie(const char *s);
 void die(const char *error);
 void warning(const char *message);
 void error(const char *message);
@@ -114,6 +115,7 @@ struct header_entry {
   { "Pragma", header_pragma, 0, 0 },
   { "Retry-After", header_retry_after, 0, 0 },
   { "Server", header_server, 0, 0 },
+  { "Set-Cookie", header_set_cookie, 0, 0 },
   { "Trailer", header_trailer, 0, 0 },
   { "Transfer-Encoding", header_transfer_encoding, 0, 0 },
   { "Upgrade", header_upgrade, 0, 0 },
@@ -221,6 +223,14 @@ void init(void)
       "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
       "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([ 12][0-9]) "
       "([012][0-9]):([0-5][0-9]):([0-5][0-9]) ([0-9]{4})$",
+      REG_EXTENDED);
+  regcomp_wrapper(&re_cookie_nameval,
+      "^[^;, ]+=[^;, ]*$",
+      REG_EXTENDED);
+  regcomp_wrapper(&re_cookie_expires,
+      "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0123][0-9])-"
+      "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-([0-9]{4}) "
+      "([012][0-9]):([0-5][0-9]):([0-5][0-9]) GMT$",
       REG_EXTENDED);
 }
 
@@ -941,6 +951,87 @@ void header_via(const char *s)
   lookup("via");
 }
 
+/* http://wp.netscape.com/newsref/std/cookie_spec.html */
+void header_set_cookie(const char *s)
+{
+  bool ok = true;
+  int r;
+  const char *semi = strchr(s, ';');
+  const char *s2;
+  struct tm tm;
+  double diff;
+  time_t time0, time1;
+  regmatch_t pmatch[20];
+
+  if (semi)
+    s2 = strndup(s, semi - s);
+  else
+    s2 = s;
+
+  r = regexec(&re_cookie_nameval, s2, 0, 0, 0);
+  if (r) {
+    lookup("cookiebadnameval");
+    ok = false;
+  }
+  
+  if (!semi)
+    return;
+
+  s = skip_lws(semi + 1);
+
+  while (*s) {
+    semi = strchr(s, ';');
+    if (semi)
+      s2 = strndup(s, semi - s);
+    else
+      s2 = s;
+
+    if (strncmp(s2, "expires=", 8) == 0) {
+      s2 += 8;
+      r = regexec(&re_cookie_expires, s2, 20, pmatch, 0);
+      if (r == 0) {
+        tm.tm_mday = atoi(s2 + pmatch[2].rm_so);
+        tm.tm_mon = month(s2 + pmatch[3].rm_so);
+        tm.tm_year = atoi(s2 + pmatch[4].rm_so) - 1900;
+        tm.tm_hour = atoi(s2 + pmatch[5].rm_so);
+        tm.tm_min = atoi(s2 + pmatch[6].rm_so);
+        tm.tm_sec = atoi(s2 + pmatch[7].rm_so);
+
+        time0 = time(0);
+        time1 = mktime_from_utc(&tm);
+
+        diff = difftime(time0, time1);
+        if (10 < diff) {
+          lookup("cookiepastdate");
+          ok = false;
+        }
+      } else {
+        lookup("cookiebaddate");
+        ok = false;
+      }
+    } else if (strncmp(s2, "domain=", 7) == 0) {
+    } else if (strncmp(s2, "path=", 5) == 0) {
+      if (s2[5] != '/') {
+        lookup("cookiebadpath");
+        ok = false;
+      }
+    } else if (strcmp(s, "secure") == 0) {
+    } else {
+      printf("    Set-Cookie field '%s':\n", s2);
+      lookup("cookieunknownfield");
+      ok = false;
+    }
+
+    if (semi)
+      s = skip_lws(semi + 1);
+    else
+      break;
+  }
+
+  if (ok)
+    lookup("ok");
+}
+
 
 /**
  * Print an error message and exit.
@@ -1045,6 +1136,16 @@ struct message_entry {
                   "of header names, or \"*\"." },
   { "contentrange", "Warning: The Content-Range header should not be returned "
                     "by the server for this request." },
+  { "cookiebaddate", "Error: The expires date must be in the form "
+                     "\"Wdy, DD-Mon-YYYY HH:MM:SS GMT\"." },
+  { "cookiebadnameval", "Error: A Set-Cookie header must start with "
+                        "name=value, each excluding semi-colon, comma and "
+                        "white space." },
+  { "cookiebadpath", "Error: The path does not start with \"/\"." },
+  { "cookiepastdate", "Warning: The expires date is in the past. The cookie "
+                      "will be deleted by browsers." },
+  { "cookieunknownfield", "Warning: This is not a standard Set-Cookie "
+                          "field." },
   { "futurehttp", "Warning: I only understand HTTP/1.1. Check for a newer "
                   "version of this tool." },
   { "futurelastmod", "Error: The specified Last-Modified date-time is in "
